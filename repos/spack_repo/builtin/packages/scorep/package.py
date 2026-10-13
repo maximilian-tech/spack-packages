@@ -17,7 +17,7 @@ class Scorep(AutotoolsPackage):
     url = "https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-7.1/scorep-7.1.tar.gz"
     maintainers("wrwilliams")
     version(
-         "master",
+        "master",
         url="https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/branches/master/latest.tar.gz",
         no_cache=True,
     )
@@ -84,9 +84,23 @@ class Scorep(AutotoolsPackage):
     variant(
         "gotcha", default=True, description="Enable library wrapping with libgotcha", when="@9:"
     )
-
+    # Score-P tarballs contain the component revisions selected by Score-P.
+    # Bundled mode builds and installs these components in Score-P's prefix,
+    # treating them as part of Score-P rather than separate Spack dependencies.
+    # Require bundled mode for master, which may need component changes
+    # not yet available in released versions.
     variant(
-        "bundled", default=False, description="Build the bundled OTF2, CubeLib, CubeW and OPARI2",
+        "bundled",
+        default=False,
+        description=(
+            "Build and install Score-P's bundled OTF2, CubeLib, CubeW and "
+            "OPARI2 in the Score-P prefix"
+        ),
+    )
+    requires(
+        "+bundled",
+        when="@=master",
+        msg="Build master with the component sources shipped in its tarball (+bundled).",
     )
     # Dependencies for SCORE-P are quite tight. See the homepage for more
     # information. Starting with scorep 4.0 / cube 4.4, Score-P only depends on
@@ -98,29 +112,34 @@ class Scorep(AutotoolsPackage):
     depends_on("fortran", type=("build", "run"), when="+fortran")
 
     # SCOREP 10
-    depends_on("otf2@3.2:", when="@10: ~bundled")
+    with when("~bundled"):
+        depends_on("otf2@3.2:", when="@10:")
 
     # SCOREP 9
     depends_on("gotcha@1.0.8:", type="link", when="+gotcha")
-    depends_on("otf2@3.1:", when="@9: ~bundled")
-    depends_on("cubew@4.9:", when="@9: ~bundled")
-    depends_on("cubelib@4.9:", when="@9: ~bundled")
-    depends_on("opari2@2.0.9:", when="@9: ~bundled")
+    with when("~bundled"):
+        depends_on("otf2@3.1:", when="@9:")
+        depends_on("cubew@4.9:", when="@9:")
+        depends_on("cubelib@4.9:", when="@9:")
+        depends_on("opari2@2.0.9:", when="@9:")
 
     # SCOREP 8
     depends_on("binutils", type="link", when="@8:")
-    depends_on("otf2@3:", when="@8: ~bundled")
-    depends_on("cubew@4.8.2:4.8", when="@8.3:8 ~bundled")
-    depends_on("cubelib@4.8.2:4.8", when="@8.3:8 ~bundled")
-    depends_on("cubew@4.8", when="@8:8.2 ~bundled")
-    depends_on("cubelib@4.8", when="@8:8.2 ~bundled")
+    with when("~bundled"):
+        depends_on("otf2@3:", when="@8:")
+        depends_on("cubew@4.8.2:4.8", when="@8.3:8")
+        depends_on("cubelib@4.8.2:4.8", when="@8.3:8")
+        depends_on("cubew@4.8", when="@8:8.2")
+        depends_on("cubelib@4.8", when="@8:8.2")
     # fall through to Score-P 7's OPARI2, no new release
     # SCOREP 7
-    depends_on("otf2@2.3:2.3.99", when="@7.0:7 ~bundled")
-    depends_on("cubew@4.6:4.7.99", when="@7.0:7 ~bundled")
-    depends_on("cubelib@4.6:4.7.99", when="@7.0:7 ~bundled")
-    depends_on("opari2@2.0.6:", when="@7: ~bundled")
-
+    with when("~bundled"):
+        depends_on("otf2@2.3:2.3.99", when="@7.0:7")
+        depends_on("cubew@4.6:4.7.99", when="@7.0:7")
+        depends_on("cubelib@4.6:4.7.99", when="@7.0:7")
+        depends_on("opari2@2.0.6:", when="@7:")
+    # Preserve Cube's compression support through a Spack dependency.
+    depends_on("zlib-api", when="+bundled")
     # Conditional dependencies for variants
     depends_on("mpi@2.2:", type=("build", "run"), when="+mpi")
     depends_on("papi", when="+papi")
@@ -142,9 +161,6 @@ class Scorep(AutotoolsPackage):
     depends_on("rocprofiler-dev", when="@:9+hip")
     depends_on("rocm-smi-lib", when="@:9+hip")
     depends_on("rocprofiler-sdk", when="@10:+hip")
-    # Preserve Cube's compression support through a Spack dependency.
-    depends_on("zlib-api", when="+bundled")
-
     # Score-P requires a case-sensitive file system, and therefore
     # does not work on macOS
     # https://github.com/spack/spack/issues/1609
@@ -181,9 +197,7 @@ class Scorep(AutotoolsPackage):
     def configure_args(self):
         spec = self.spec
         components = ("otf2", "cubelib", "cubew", "opari2")
-        config_args = [
-           "--enable-shared",
-        ]
+        config_args = ["--enable-shared"]
 
         if "+bundled" in spec:
             config_args.extend(f"--without-{name}" for name in components)
@@ -191,16 +205,10 @@ class Scorep(AutotoolsPackage):
             # Preserve Cube's compression support through a Spack dependency.
             zlib_prefix = spec["zlib-api"].prefix
             config_args.extend(
-                [
-                    f"--with-frontend-zlib={zlib_prefix}",
-                    f"--with-backend-zlib={zlib_prefix}",
-                ]
+                [f"--with-frontend-zlib={zlib_prefix}", f"--with-backend-zlib={zlib_prefix}"]
             )
         else:
-            config_args.extend(
-                f"--with-{name}={spec[name].prefix.bin}"
-                for name in components
-            )
+            config_args.extend(f"--with-{name}={spec[name].prefix.bin}" for name in components)
 
         # cname must match one of these:
         # --with-nocross-compiler-suite=(gcc|ibm|intel|oneapi|nvhpc|pgi|clang|aocc|amdclang|cray)
